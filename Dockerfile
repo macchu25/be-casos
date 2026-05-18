@@ -11,7 +11,6 @@ FROM alpine:latest
 RUN apk add --no-cache ffmpeg ca-certificates
 WORKDIR /app
 COPY --from=builder /app/main .
-COPY --from=builder /app/.env .
 # Ensure tmp and storage dirs exist
 RUN mkdir -p tmp/streams storage/archives
 
