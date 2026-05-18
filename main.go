@@ -82,7 +82,12 @@ func main() {
 	
 	// CẤU HÌNH CORS AN TOÀN
 	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowOrigins = []string{"http://localhost:3000", "http://127.0.0.1:3000"} // Chỉ cho phép Frontend của bạn
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL != "" {
+		corsConfig.AllowOrigins = []string{"http://localhost:3000", "http://127.0.0.1:3000", frontendURL}
+	} else {
+		corsConfig.AllowOrigins = []string{"http://localhost:3000", "http://127.0.0.1:3000"}
+	}
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
 	corsConfig.AllowCredentials = true
 	r.Use(cors.New(corsConfig))
