@@ -32,8 +32,12 @@ func NewManager(db *mongo.Database, hlsServer *stream.HLSServer) *Manager {
 func (m *Manager) StartAll() {
 	var cams []model.Camera
 	cursor, err := m.db.Collection("cameras").Find(context.Background(), bson.M{})
-	if err == nil {
-		cursor.All(context.Background(), &cams)
+	if err != nil {
+		log.Printf("[Manager] Lỗi khi lấy danh sách camera: %v\n", err)
+		return
+	}
+	if err := cursor.All(context.Background(), &cams); err != nil {
+		log.Printf("[Manager] Lỗi khi decode danh sách camera: %v\n", err)
 	}
 
 	for _, cam := range cams {
@@ -102,7 +106,10 @@ func (m *Manager) StopStream(camID primitive.ObjectID) {
 }
 
 func (m *Manager) updateStatus(camID primitive.ObjectID, status string) {
-	m.db.Collection("cameras").UpdateOne(context.Background(), bson.M{"_id": camID}, bson.M{"$set": bson.M{"status": status}})
+	_, err := m.db.Collection("cameras").UpdateOne(context.Background(), bson.M{"_id": camID}, bson.M{"$set": bson.M{"status": status}})
+	if err != nil {
+		log.Printf("[Manager] CẢNH BÁO: Không thể cập nhật status '%s' cho camera %s: %v\n", status, camID.Hex(), err)
+	}
 }
 
 func (m *Manager) mockReadRTSP(c model.Camera) error {

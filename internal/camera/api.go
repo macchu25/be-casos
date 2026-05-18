@@ -2,6 +2,7 @@ package camera
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -23,8 +24,19 @@ func NewAPI(db *mongo.Database, manager *Manager) *API {
 
 func (a *API) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/cameras", a.GetCameras)
+	router.GET("/cameras/discovery", a.DiscoverCameras) // Route mới
 	router.POST("/cameras", a.AddCamera)
 	router.DELETE("/cameras/:id", a.DeleteCamera)
+}
+
+// DiscoverCameras thực hiện quét mạng và trả về danh sách IP camera tìm thấy
+func (a *API) DiscoverCameras(c *gin.Context) {
+	ips := DiscoverCameras()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"ips":     ips,
+		"count":   len(ips),
+	})
 }
 
 func (a *API) GetCameras(c *gin.Context) {
@@ -67,11 +79,71 @@ func (a *API) AddCamera(c *gin.Context) {
 	}
 	
 	// Gán camera cho người dùng hiện tại
-	objID, _ := primitive.ObjectIDFromHex(userID.(string))
+	userIDStr, ok := userID.(string)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Session không hợp lệ"})
+		return
+	}
+	objID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID người dùng không hợp lệ"})
+		return
+	}
 	cam.UserID = objID
 
+	// 1. Lấy thông tin gói cước của người dùng
+	var user model.User
+	err = a.db.Collection("users").FindOne(context.Background(), bson.M{"_id": objID}).Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Không thể xác định thông tin gói cước"})
+		return
+	}
+
+	// 2. Định nghĩa giới hạn cho từng gói
+	planLimits := map[string]int64{
+		"free":    1,
+		"starter": 3,
+		"creator": 10,
+		"pro":     25,
+		"scale":   1000,
+	}
+
+	limit, ok := planLimits[user.SubscriptionPlan]
+	if !ok {
+		limit = 1 // Mặc định là gói Free nếu không xác định được
+	}
+
+	// 3. Đếm số camera hiện có của người dùng
+	count, err := a.db.Collection("cameras").CountDocuments(context.Background(), bson.M{"user_id": objID})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi kiểm tra số lượng camera"})
+		return
+	}
+
+	// Security: Kiểm tra quyền sở hữu nếu ID camera đã tồn tại
+	filter := bson.M{"_id": cam.ID}
+	var existingCam model.Camera
+	err = a.db.Collection("cameras").FindOne(context.Background(), filter).Decode(&existingCam)
+	
+	isNewCamera := err != nil // Nếu không tìm thấy thì là camera mới
+
+	// 4. Kiểm tra giới hạn nếu là camera mới
+	if isNewCamera && count >= limit {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Giới hạn gói cước",
+			"message": fmt.Sprintf("Bạn đã đạt giới hạn tối đa của gói %s (%d camera). Vui lòng nâng cấp để thêm mới.", user.SubscriptionPlan, limit),
+		})
+		return
+	}
+
+	// Nếu camera đã tồn tại và KHÔNG thuộc về user hiện tại -> Từ chối
+	if err == nil && existingCam.UserID != objID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Bạn không có quyền cập nhật camera của người khác"})
+		return
+	}
+
 	opts := options.Update().SetUpsert(true)
-	_, err := a.db.Collection("cameras").UpdateOne(context.Background(), bson.M{"_id": cam.ID}, bson.M{"$set": cam}, opts)
+	_, err = a.db.Collection("cameras").UpdateOne(context.Background(), filter, bson.M{"$set": cam}, opts)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -142,4 +214,50 @@ func (a *API) DeleteCamera(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Đã chặn stream và xóa camera thành công"})
+}
+
+// Xử lý POST đăng ký Bridge URL
+func (a *API) RegisterBridge(c *gin.Context) {
+	var payload struct {
+		UserID string `json:"user_id"`
+		URL    string `json:"url"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	objID, err := primitive.ObjectIDFromHex(payload.UserID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user_id"})
+		return
+	}
+
+	// Cập nhật cấu hình camera là dạng 'bridge'
+	// url sẽ lưu stream HLS trực tiếp từ go2rtc qua Cloudflare Tunnel
+	streamURL := fmt.Sprintf("%s/api/stream.m3u8?src=camera", payload.URL)
+
+	filter := bson.M{"user_id": objID, "name": "Cardiac Sync Camera"}
+	update := bson.M{
+		"$set": bson.M{
+			"url":         streamURL,
+			"type":        "bridge",
+			"status":      "online",
+			"bridge_url":  payload.URL,
+		},
+		"$setOnInsert": bson.M{
+			"_id":     primitive.NewObjectID(),
+			"name":    "Cardiac Sync Camera",
+			"user_id": objID,
+		},
+	}
+	opts := options.Update().SetUpsert(true)
+
+	_, err = a.db.Collection("cameras").UpdateOne(context.Background(), filter, update, opts)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save bridge camera"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Bridge registered successfully", "stream_url": streamURL})
 }

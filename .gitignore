@@ -1,0 +1,12 @@
+# Environment variables
+.env
+*.env
+
+# Binaries and executables
+*.exe
+go-backend
+server
+bin/
+
+# Temporary files
+tmp/

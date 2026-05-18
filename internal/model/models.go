@@ -8,15 +8,18 @@ import (
 
 // users
 type User struct {
-	ID           primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name         string             `bson:"name" json:"name"`
-	Email        string             `bson:"email" json:"email"`
-	Phone        string             `bson:"phone" json:"phone"`
-	Role         string             `bson:"role" json:"role"`
-	PasswordHash string             `bson:"password_hash" json:"-"`
-	Provider     string             `bson:"provider" json:"provider"`      // "google" or "facebook"
-	ProviderID   string             `bson:"provider_id" json:"provider_id"` // ID từ MXH
-	CreatedAt    time.Time          `bson:"created_at" json:"created_at"`
+	ID                 primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Name               string             `bson:"name" json:"name"`
+	Email              string             `bson:"email" json:"email"`
+	Phone              string             `bson:"phone" json:"phone"`
+	Role               string             `bson:"role" json:"role"`
+	PasswordHash       string             `bson:"password_hash" json:"-"`
+	Provider           string             `bson:"provider" json:"provider"`      // "google" or "facebook"
+	ProviderID         string             `bson:"provider_id" json:"provider_id"` // ID từ MXH
+	SubscriptionPlan   string             `bson:"subscription_plan" json:"subscription_plan"` // "free", "starter", "creator", "pro", "scale"
+	SubscriptionStatus string             `bson:"subscription_status" json:"subscription_status"` // "active", "canceled", "past_due"
+	PlanExpiresAt      *time.Time         `bson:"plan_expires_at,omitempty" json:"plan_expires_at"`
+	CreatedAt          time.Time          `bson:"created_at" json:"created_at"`
 }
 
 // cpr_guides

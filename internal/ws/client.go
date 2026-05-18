@@ -10,25 +10,25 @@ import (
 )
 
 const (
-	writeWait  = 10 * time.Second
-	pongWait   = 60 * time.Second
+	writeWait  = 60 * time.Second
+	pongWait   = 120 * time.Second
 	pingPeriod = (pongWait * 9) / 10
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	// (CheckOrigin cho phép các Frontend domain khác như localhost:3000 kết nối vào ko bị chặn CORS)
+	ReadBufferSize:  2048,
+	WriteBufferSize: 2048,
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		return true // Cho phép mọi Origin trong môi trường Dev để ổn định kết nối
 	},
 }
 
 // Client đại diện cho kết nối của 1 app (Frontend)
 type Client struct {
-	hub  *Hub
-	conn *websocket.Conn
-	send chan []byte
+	hub    *Hub
+	conn   *websocket.Conn
+	send   chan []byte
+	UserID string
 }
 
 func (c *Client) readPump() {
@@ -94,14 +94,20 @@ func (c *Client) writePump() {
 
 // Giúp nâng cấp Endpoint HTTP /ws thành kết nối hai chiều
 func ServeWs(hub *Hub, c *gin.Context) {
-	log.Printf("[WebSocket] Yêu cầu kết nối mới từ: %s\n", c.Request.RemoteAddr)
+	userID, exists := c.Get("userID")
+	if !exists {
+		log.Println("[WebSocket] Từ chối kết nối: Thiếu UserID")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	log.Printf("[WebSocket] Yêu cầu kết nối mới từ User %s (%s)\n", userID, c.Request.RemoteAddr)
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Println("[WebSocket] Lỗi Upgrade:", err)
 		return
 	}
-	log.Printf("[WebSocket] Kết nối thành công cho: %s\n", c.Request.RemoteAddr)
-	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256)}
+	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256), UserID: userID.(string)}
 	
 	// Register client vào Hub
 	client.hub.Register <- client
