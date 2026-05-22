@@ -83,7 +83,11 @@ func (a *API) AIChat(c *gin.Context) {
 
 	// Gọi đến AI Python service
 	pbody, _ := json.Marshal(map[string]string{"query": payload.Query})
-	resp, err := http.Post("http://localhost:8001/chat", "application/json", bytes.NewBuffer(pbody))
+	aiBrainURL := os.Getenv("AI_BRAIN_URL")
+	if aiBrainURL == "" {
+		aiBrainURL = "http://localhost:8001"
+	}
+	resp, err := http.Post(aiBrainURL+"/chat", "application/json", bytes.NewBuffer(pbody))
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service hiện không khả dụng"})
 		return
@@ -271,6 +275,54 @@ func (a *API) AIResult(c *gin.Context) {
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Định dạng dữ liệu không hợp lệ"})
 	}
+}
+
+func (a *API) SimulateAI(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	userIDStr, ok := userID.(string)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Session không hợp lệ"})
+		return
+	}
+	userObjID, err := primitive.ObjectIDFromHex(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID người dùng không hợp lệ"})
+		return
+	}
+
+	camIDStr := c.Param("id")
+	camID, err := primitive.ObjectIDFromHex(camIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID Camera không hợp lệ"})
+		return
+	}
+
+	// Verify ownership of the camera
+	var camera bson.M
+	camColl := a.db.Collection("cameras")
+	err = camColl.FindOne(context.Background(), bson.M{"_id": camID, "user_id": userObjID}).Decode(&camera)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Bạn không có quyền truy cập camera này hoặc camera không tồn tại"})
+		return
+	}
+
+	var payload struct {
+		Label      string  `json:"label"`
+		Confidence float32 `json:"confidence"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Dữ liệu không hợp lệ"})
+		return
+	}
+
+	a.engine.ResultCh <- AIResult{
+		CameraID:   camID,
+		ModelName:  "Fall Detection Engine (Simulation)",
+		Label:      payload.Label,
+		Confidence: payload.Confidence,
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Đã gửi dữ liệu giả lập AI"})
 }
 
 func (a *API) GetAIModels(c *gin.Context) {

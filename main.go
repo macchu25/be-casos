@@ -151,6 +151,7 @@ func main() {
 		private.POST("/test-call", alertAPI.TestCall)
 		private.POST("/test-adb-push", alertAPI.TestADBPush)
 		private.GET("/debug-call-state", alertAPI.DebugCallState)
+		private.POST("/cameras/:id/simulate-ai", alertAPI.SimulateAI)
 		private.GET("/health-profiles", userHandler.GetProfile)
 		private.PUT("/health-profiles", userHandler.UpdateProfile)
 		private.PUT("/health-profiles/contacts", userHandler.UpdateContacts)

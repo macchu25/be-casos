@@ -273,7 +273,11 @@ func (e *Engine) triggerAlert(camID primitive.ObjectID, label string, conf float
 			"metadata": map[string]string{"user_id": cameraDoc.UserID.Hex(), "type": label},
 		}
 		pbody, _ := json.Marshal(payload)
-		http.Post("http://localhost:8001/index", "application/json", bytes.NewBuffer(pbody))
+		aiBrainURL := os.Getenv("AI_BRAIN_URL")
+		if aiBrainURL == "" {
+			aiBrainURL = "http://localhost:8001"
+		}
+		http.Post(aiBrainURL+"/index", "application/json", bytes.NewBuffer(pbody))
 	}()
 }
 
